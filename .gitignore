@@ -1,0 +1,13 @@
+# 数据目录（视频、帧、结果全部排除）
+data/
+
+# 环境和依赖
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 系统文件
+.DS_Store
+Thumbs.db
