@@ -11,8 +11,8 @@ A VLM-based (GLM-4.6V) action prediction system using egocentric video from the 
 | Version | Input | History | Fine-tune | Status |
 |---------|-------|---------|-----------|--------|
 | V1 | Single frame | No | No | ✅ Done |
-| V2 | 4 frames (2s window) | No | No | ✅ Done (prompt improved per output_standard) |
-| V3 | 4 frames | Sliding window (3 steps) | No | ✅ Done and tested |
+| V2 | 4 frames (2s window) | No | No | ✅ Done|
+| V3 | 4 frames | Sliding window (3 steps) | No | ✅ Done |
 | V4 | 4 frames | No | Yes | ❌ Not started |
 | V5 | 4 frames | Yes | Yes | ❌ Not started |
 
