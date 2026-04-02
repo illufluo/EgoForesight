@@ -1,6 +1,5 @@
-# Action Prediction Project — Progress Sync
+# EgoForesight
 
-> This file is used to sync project progress with Claude on the web. Last updated: 2026-03-26
 
 ## Project Goal
 
