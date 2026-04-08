@@ -1,9 +1,9 @@
-"""Annotation-specific prompts for detailed video description."""
+"""Annotation-specific prompt for direct 30-50 word explanations."""
 
 
 def build_annotation_prompt(narration_context: str = "") -> str:
     """
-    Build the annotation prompt for generating explanation_full.
+    Build the annotation prompt for generating a concise explanation (30-50 words).
 
     Args:
         narration_context: Formatted narration text from nearby windows.
@@ -12,16 +12,18 @@ def build_annotation_prompt(narration_context: str = "") -> str:
     parts = [
         "You are analyzing consecutive frames from a first-person (egocentric) video, "
         "shown in chronological order at regular intervals within a 1-second segment.\n\n"
-        "Task: Describe in detail what the person is doing in this segment.\n\n"
+        "Task: Describe what the person is doing in this segment.\n\n"
         "Rules:\n"
         "- Describe the action progression across frames (first... then... finally...)\n"
         "- Name specific objects (e.g. \"white cup\", \"metal stirrer\", \"wooden board\")\n"
-        "- Include hand details: which hand does what, finger positions, grip changes\n"
+        "- Include hand details: which hand does what\n"
         "- Start with action verbs, use dynamic verbs (reaches, grasps, lifts, places, stirs)\n"
         "- Do NOT start with \"The person is currently...\"\n"
         "- Do NOT reference the frames themselves (no \"in frame 3\", \"across the images\")\n"
         "- Do NOT predict future actions — only describe what is visible\n"
-        "- 80-100 words, be detailed and precise\n"
+        "- Do NOT use hedging words (possibly, likely, appears to, seems to) — describe only what you can clearly see, or omit uncertain details\n"
+        "- Always use third person, never use \"you\" or \"your\"\n"
+        "- 30-50 words, concise but specific\n"
     ]
 
     if narration_context:
@@ -40,20 +42,3 @@ def build_annotation_prompt(narration_context: str = "") -> str:
     )
 
     return "".join(parts)
-
-
-def build_compression_prompt(explanation_full: str) -> str:
-    """
-    Build a text-only prompt to compress explanation_full into explanation_compact.
-    """
-    return (
-        "Compress the following detailed action description into 30-50 words.\n\n"
-        "Rules:\n"
-        "- Keep the temporal progression (first... then... finally...)\n"
-        "- Keep specific object names and hand details\n"
-        "- Start with action verbs, use dynamic verbs\n"
-        "- Do NOT add new information not in the original\n"
-        "- Do NOT start with \"The person...\"\n\n"
-        f"Original:\n{explanation_full}\n\n"
-        "Compressed:"
-    )

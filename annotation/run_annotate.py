@@ -1,9 +1,9 @@
 """
-Annotation Pipeline: video → detailed annotation JSON.
+Annotation Pipeline: video → annotation JSON (single-pass, 30-50 word explanations).
 
 Usage:
     python -m annotation.run_annotate \
-        --video data/videos/5c9e8ad1-135f-4f01-a498-274835fba320.mp4 \
+        --video data/videos/<video_uid>.mp4 \
         --narration data/narrations/selected_narrations.csv \
         --output data/annotations/
 """
@@ -20,16 +20,15 @@ from shared.video_frames import extract_frames
 from shared.glm_client import call_vlm
 from shared.utils import load_narrations
 from annotation.prompt import build_annotation_prompt
-from annotation.compress import compress_explanation
 
 WINDOW_DURATION = 1.0   # seconds per window
 FRAME_INTERVAL = 0.2    # seconds between frames
 FRAMES_PER_WINDOW = 5   # 1.0 / 0.2
-API_DELAY = 1.0          # seconds between VLM calls
+API_DELAY = 0.5          # seconds between VLM calls
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Annotation pipeline: generate detailed action annotations")
+    parser = argparse.ArgumentParser(description="Annotation pipeline: generate action annotations")
     parser.add_argument("--video", required=True, help="Path to input video (.mp4)")
     parser.add_argument("--narration", required=True, help="Path to narration CSV")
     parser.add_argument("--output", default="data/annotations/", help="Output directory")
@@ -61,8 +60,8 @@ def main():
     if completed:
         print(f"Resuming: {len(completed)} windows already annotated, continuing from window {len(completed)}.")
 
-    # --- Step 5: Annotation pass (explanation_full) ---
-    print("\n=== Pass 1: Generating explanation_full ===")
+    # --- Step 5: Annotation pass ---
+    print(f"\n=== Generating explanations (30-50 words) ===")
     for i, window in enumerate(windows):
         if i < len(completed):
             continue  # already done
@@ -76,20 +75,19 @@ def main():
 
         try:
             response = call_vlm(img_paths, prompt)
-            explanation_full = _parse_description(response)
+            explanation = _parse_description(response)
             status = "ok"
         except Exception as e:
             print(f"    ERROR: {e}")
             response = f"ERROR: {e}"
-            explanation_full = response
+            explanation = response
             status = "error"
 
         entry = {
             "window_id": i,
             "time_range": [window["t_start"], window["t_end"]],
             "frame_paths": [os.path.relpath(f["image_path"]) for f in window["frames"]],
-            "explanation_full": explanation_full,
-            "explanation_compact": None,  # filled in pass 2
+            "explanation": explanation,
             "ego4d_narrations": aligned[i],
             "raw_vlm_response": response,
             "annotation_status": status,
@@ -102,32 +100,10 @@ def main():
         if i < total_windows - 1:
             time.sleep(args.delay)
 
-    # --- Step 6: Compression pass (explanation_compact) ---
-    print(f"\n=== Pass 2: Compressing to explanation_compact ===")
-    for i, entry in enumerate(completed):
-        if entry["explanation_compact"] is not None:
-            continue  # already compressed
-        if entry["annotation_status"] == "error":
-            entry["explanation_compact"] = entry["explanation_full"]
-            continue
-
-        print(f"  Compressing window {i + 1}/{total_windows}...")
-        try:
-            compact = compress_explanation(entry["explanation_full"])
-            entry["explanation_compact"] = compact
-        except Exception as e:
-            print(f"    Compression error: {e}")
-            entry["explanation_compact"] = entry["explanation_full"]
-
-        # Save after each compression
-        _save_partial(output_file, video_path, video_name, completed, total_windows)
-
-        if i < total_windows - 1:
-            time.sleep(args.delay)
-
     # --- Final save ---
     _save_partial(output_file, video_path, video_name, completed, total_windows)
-    print(f"\nDone. {total_windows} windows annotated → {output_file}")
+    ok_count = sum(1 for w in completed if w["annotation_status"] == "ok")
+    print(f"\nDone. {ok_count}/{total_windows} windows annotated successfully → {output_file}")
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -215,7 +191,15 @@ def _load_partial(output_file):
     try:
         with open(output_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("windows", [])
+        # Only count windows that have a non-None explanation
+        windows = data.get("windows", [])
+        done = []
+        for w in windows:
+            if w.get("explanation") is not None:
+                done.append(w)
+            else:
+                break  # stop at first incomplete
+        return done
     except (json.JSONDecodeError, KeyError):
         return []
 
