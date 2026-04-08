@@ -1,9 +1,8 @@
 # EgoForesight
 
-
 ## Project Goal
 
-Build a VLM-based action prediction system using egocentric video (Ego4D FHO dataset). The system analyzes video frames and predicts the next action in natural language. A separate annotation pipeline generates training data for future fine-tuning.
+Build a VLM-based action prediction system using egocentric video (Ego4D FHO dataset). The system analyzes video frames and predicts the next action in natural language. A separate annotation pipeline generates training data for fine-tuning.
 
 ## Tech Stack
 
@@ -15,7 +14,7 @@ Build a VLM-based action prediction system using egocentric video (Ego4D FHO dat
 ## Dataset
 
 - **Source**: Ego4D FHO (Forecasting Hands and Objects)
-- **Videos**: ~70 clips, 30s–2min each
+- **Videos**: 71 clips, 30s–2min each
 - **Narration CSV columns**: video_uid, pass, timestamp_sec, timestamp_frame, narration_text, annotation_uid
 - **Narration format**: `#C C does something` — `#C C` prefix stripped by `load_narrations()`
 - **Known issues**: narration density is uneven; some gaps >5s; sentences are short
@@ -27,24 +26,37 @@ Build a VLM-based action prediction system using egocentric video (Ego4D FHO dat
 | V1 | Single frame | No | No | ✅ Done |
 | V2 | 4 frames (2s window) | No | No | ✅ Done |
 | V3 | 4 frames | Sliding window (3 steps) | No | ✅ Done (can be improved) |
-| V4 | 4 frames | No | Yes | ❌ Not started |
-| V5 | 4 frames | Yes | Yes | ❌ Not started |
+| V4 | 4 frames | No | Yes | ⏳ Training data ready, needs GPU |
+| V5 | 4 frames | Yes (3 steps) | Yes | ⏳ Training data ready, needs GPU |
 
 - **e** = explanation: natural language description of current action (30-50 words)
 - **p** = prediction: natural language description of most likely next action
 
-## Annotation Pipeline
+## Annotation & Training Data Pipeline
 
 | Component | Status |
 |-----------|--------|
-| annotation/run_annotate.py (explanation_full + compression) | ✅ Done and tested |
-| annotation/build_training.py (annotation → fine-tune data) | ❌ Placeholder only |
+| annotation/run_annotate.py | ✅ Done — single-pass, 30-50 word explanations directly |
+| annotation/build_training.py | ✅ Done — supports both V4 (no history) and V5 (with history) |
+| 70/71 videos annotated | ✅ Done |
+| V4 training data (data/training_v4/) | ✅ 4918 samples (50 train / 10 val / 10 test videos) |
+| V5 training data (data/training_v5/) | ✅ 4918 samples, same split, with history context in prompt |
 
-- **Window**: 1-second (not 2s), 0.2s frame interval, 5 frames per window
-- **2-pass process**: Pass 1 generates explanation_full (80-100 words, with images), Pass 2 compresses to explanation_compact (30-50 words, text-only VLM call)
-- **No prediction field** — predictions are constructed from neighboring explanations at training time
-- **Narration alignment**: matches Ego4D narrations to windows by timestamp, feeds current ±1 window as context anchors
-- **Resumable**: saves after each window, detects partial output on restart
+### run_annotate.py
+- Single-pass: directly generates 30-50 word explanations (no compression step)
+- 1-second windows, 0.2s frame interval, 5 frames per window
+- No prediction field — predictions constructed at training data build time
+- Narration alignment: current ±1 window narrations as context anchors
+- Resumable: saves after each window, detects partial output on restart
+- API delay: 0.5s between calls
+
+### build_training.py
+- Reads all `*_annotation.json` files from annotations directory
+- For each window t: explanation = window_t, prediction = window_(t + pred_horizon)
+- Selects n_frames from 5 (evenly spaced, e.g. 4 from 5 → indices [0,1,3,4])
+- `--with_history --history_steps 3`: appends previous N windows' explanations as context in user prompt (for V5)
+- Splits by VIDEO (not window) for proper evaluation — seed 42 for reproducibility
+- Outputs LLaMA-Factory format: train.json, val.json, test.json, split_info.json, config.json
 
 ## Directory Structure
 
@@ -68,22 +80,21 @@ sdp/
 │   ├── prompt.py              #   V2 base + history section (current frames > history)
 │   └── run.py                 #   Entry: same as V2 + history management & injection
 │
-├── annotation/                # ✅ Data annotation pipeline
-│   ├── prompt.py              #   Annotation prompt + compression prompt
-│   ├── compress.py            #   explanation_full → explanation_compact (text-only VLM)
-│   ├── run_annotate.py        #   2-pass pipeline, resumable, rate-limited
-│   └── build_training.py      #   Placeholder — annotations → fine-tune training data
+├── annotation/                # ✅ Annotation + training data pipeline
+│   ├── prompt.py              #   Annotation prompt (30-50 words, anti-hedging, third person)
+│   ├── run_annotate.py        #   Single-pass annotation, resumable, rate-limited
+│   └── build_training.py      #   Annotations → LLaMA-Factory format, supports --with_history
 │
 ├── data/
-│   ├── videos/                #   Raw videos (.mp4)
+│   ├── videos/                #   71 raw videos (.mp4)
 │   ├── frames/                #   Extracted frames (subdirs by video name)
-│   ├── narrations/            #   selected_narrations.csv (71 videos)
+│   ├── narrations/            #   selected_narrations.csv
 │   ├── results/               #   Inference output JSONs (v1/v2/v3)
-│   └── annotations/           #   Annotation output JSONs
+│   ├── annotations/           #   70 annotation JSONs (per video)
+│   ├── training_v4/           #   V4 training data (no history): train/val/test.json
+│   └── training_v5/           #   V5 training data (with history): train/val/test.json
 │
-├── output_standard.md         # Explanation/prediction quality standard
-├── glm46v_interface.py        # Legacy GLM interface (reference only)
-└── video_frames.py            # Legacy frame extraction (reference only)
+└── output_standard.md         # Explanation/prediction quality standard
 ```
 
 ## Module Details
@@ -103,25 +114,47 @@ sdp/
 - `HistoryManager`: `add(e, p)`, `get_history()` → `[3 steps ago]` / `[2 steps ago]` / `[Previous step]`
 - Full text history (not compressed), most recent last
 
-### annotation/run_annotate.py
-- 1s windows, 5 frames each, 2-pass (annotate → compress), resumable
-- Narration context from current ±1 windows as reference anchors
+### annotation/build_training.py
+- `--with_history --history_steps N`: appends `Step t-N ... Step t-1` explanations to user prompt
+- Without flag: V4-style prompt (frames only); with flag: V5-style prompt (frames + history)
+- Same annotation data serves both versions — difference is purely in prompt assembly
 
 ## Usage
 
 ```bash
 cd ~/Desktop/sdp && source .venv/bin/activate
 
-# Inference
-python -m v1.run --video data/videos/test.mp4 --output data/results/
-python -m v2.run --video data/videos/test.mp4 --output data/results/
-python -m v3.run --video data/videos/test.mp4 --output data/results/
+# Inference (V1/V2/V3)
+python -m v1.run --video data/videos/<video>.mp4 --output data/results/
+python -m v2.run --video data/videos/<video>.mp4 --output data/results/
+python -m v3.run --video data/videos/<video>.mp4 --output data/results/
 
-# Annotation
+# Annotate a single video
 python -m annotation.run_annotate \
     --video data/videos/<video_uid>.mp4 \
     --narration data/narrations/selected_narrations.csv \
     --output data/annotations/
+
+# Batch annotate all videos
+for video in data/videos/*.mp4; do
+    python -m annotation.run_annotate \
+        --video "$video" \
+        --narration data/narrations/selected_narrations.csv \
+        --output data/annotations/ --delay 0.5
+done
+
+# Build V4 training data (no history)
+python -m annotation.build_training \
+    --annotations data/annotations/ \
+    --output data/training_v4/ \
+    --n_frames 4 --pred_horizon 1
+
+# Build V5 training data (with history)
+python -m annotation.build_training \
+    --annotations data/annotations/ \
+    --output data/training_v5/ \
+    --n_frames 4 --pred_horizon 1 \
+    --with_history --history_steps 3
 ```
 
 ## Completed Iterations
@@ -130,12 +163,13 @@ python -m annotation.run_annotate \
 2. **glm_client.py refactor** — migrated from zhipuai SDK to zai-sdk, upgraded to glm-4.6v, enabled thinking
 3. **V2 prompt improvement** — rewrote per output_standard.md, added few-shot example, fixed parse strip issue
 4. **V3 development** — sliding window history (3 steps, full text), tested and verified
-5. **Annotation pipeline** — 2-pass annotation (detailed → compressed), 1s windows, narration alignment, resumable, tested on 1 video (18 windows, all OK)
+5. **Annotation pipeline (final)** — single-pass 30-50 word explanations, no compression step, 70 videos annotated
+6. **build_training.py** — LLaMA-Factory format, video-level splits, `--with_history` flag for V5
+7. **V4 + V5 training data generated** — 4918 samples each, 50/10/10 train/val/test split
 
 ## TODO
 
-- [ ] V4: no history + fine-tune
-- [ ] V5: history + fine-tune
-- [ ] build_training.py: convert annotation JSONs to fine-tune training data
-- [ ] Batch annotation across all ~70 Ego4D videos
+- [ ] V4: fine-tune GLM-4.6V without history (GPU required)
+- [ ] V5: fine-tune GLM-4.6V with history (GPU required)
+- [ ] Evaluation pipeline for fine-tuned models
 - [ ] Continued prompt iteration and optimization
