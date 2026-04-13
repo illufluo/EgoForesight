@@ -1,8 +1,12 @@
 """
-V3 Action Prediction: 4-frame window + history context.
+V4 Action Prediction: 4-frame window, fine-tuned Qwen3.5-9B (no history).
 
-Usage:
-    python -m v3.run --video data/videos/example.mp4 --output data/results/
+Usage (on GPU server):
+    cd /root/sdp
+    python -m v4.run --video data/videos/<video>.mp4 --output data/results/
+
+    # With custom adapter path:
+    python -m v4.run --video data/videos/<video>.mp4 --adapter /path/to/adapter
 """
 
 import argparse
@@ -13,23 +17,24 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.video_frames import extract_frames
-from shared.vlm import get_call_vlm
+from shared.qwen_client import init_model, call_vlm
 from shared.utils import save_results
-from v3.prompt import build_prompt
-from v3.history import HistoryManager
+from v4.prompt import build_prompt
 
 WINDOW_SIZE = 4
 
 
 def main():
-    parser = argparse.ArgumentParser(description="V3: 4-frame window + history action prediction")
+    parser = argparse.ArgumentParser(description="V4: Fine-tuned 4-frame window action prediction")
     parser.add_argument("--video", required=True, help="Path to input video (.mp4)")
     parser.add_argument("--output", default="data/results/", help="Output directory")
     parser.add_argument("--interval", type=float, default=0.5, help="Frame extraction interval (seconds)")
-    parser.add_argument("--backend", default="glm", choices=["glm", "qwen"], help="VLM backend")
+    parser.add_argument("--model", default="/root/sdp/models/qwen3.5-9b", help="Base model path")
+    parser.add_argument("--adapter", default="/root/sdp/outputs/v4/lora_adapter", help="LoRA adapter path")
     args = parser.parse_args()
 
-    call_vlm = get_call_vlm(args.backend)
+    # Initialize fine-tuned model
+    init_model(model_path=args.model, adapter_path=args.adapter)
 
     video_path = os.path.abspath(args.video)
     video_name = os.path.splitext(os.path.basename(video_path))[0]
@@ -48,7 +53,10 @@ def main():
     ]
     print(f"Created {len(windows)} windows of {WINDOW_SIZE} frames each.")
 
-    history_mgr = HistoryManager()
+    # Build prompt (same as V2)
+    prompt = build_prompt()
+
+    # Process each window
     predictions = []
     total = len(windows)
 
@@ -58,21 +66,13 @@ def main():
         t_start = window[0]["timestamp"]
         t_end = window[-1]["timestamp"]
 
-        # Build prompt with history
-        history_text = history_mgr.get_history()
-        prompt = build_prompt(history=history_text or None)
-
         try:
             response = call_vlm(img_paths, prompt)
         except Exception as e:
             print(f"  Skipping window {i + 1}: {e}")
             response = f"ERROR: {e}"
 
-        # Parse explanation and prediction
         explanation, prediction = _parse_response(response)
-
-        # Store in history (use raw response as fallback if parse failed)
-        history_mgr.add(explanation, prediction)
 
         predictions.append({
             "window_id": i + 1,
@@ -80,26 +80,26 @@ def main():
             "frames": [os.path.basename(f["image_path"]) for f in window],
             "explanation": explanation,
             "prediction": prediction,
-            "history_input": history_text if history_text else None,
             "raw_response": response,
         })
 
     # Save results
     results = {
         "video_path": video_path,
-        "version": "V3",
+        "version": "V4",
         "frame_interval": args.interval,
         "window_size": WINDOW_SIZE,
+        "adapter": args.adapter,
         "predictions": predictions,
     }
 
-    output_file = os.path.join(args.output, f"{video_name}_v3.json")
+    output_file = os.path.join(args.output, f"{video_name}_v4.json")
     save_results(results, output_file)
     print(f"Done. {len(predictions)} predictions saved.")
 
 
 def _parse_response(response: str) -> tuple:
-    """Extract explanation and prediction from VLM response. Returns (explanation, prediction)."""
+    """Extract explanation and prediction from VLM response."""
     text = response.strip()
 
     exp_match = re.search(r"(?i)explanation:\s*", text)

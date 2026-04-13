@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.video_frames import extract_frames
-from shared.glm_client import call_vlm
+from shared.vlm import get_call_vlm
 from shared.utils import save_results
 from v2.prompt import build_prompt
 
@@ -24,7 +24,10 @@ def main():
     parser.add_argument("--video", required=True, help="Path to input video (.mp4)")
     parser.add_argument("--output", default="data/results/", help="Output directory")
     parser.add_argument("--interval", type=float, default=0.5, help="Frame extraction interval (seconds)")
+    parser.add_argument("--backend", default="glm", choices=["glm", "qwen"], help="VLM backend")
     args = parser.parse_args()
+
+    call_vlm = get_call_vlm(args.backend)
 
     video_path = os.path.abspath(args.video)
     video_name = os.path.splitext(os.path.basename(video_path))[0]
