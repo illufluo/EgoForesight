@@ -17,10 +17,8 @@ Build a VLM-based action prediction system using egocentric video (Ego4D FHO dat
 ## Dataset
 
 - **Source**: Ego4D FHO (Forecasting Hands and Objects)
-- **Videos**: 71 clips, 30s–2min each
 - **Narration CSV columns**: video_uid, pass, timestamp_sec, timestamp_frame, narration_text, annotation_uid
-- **Narration format**: `#C C does something` — `#C C` prefix stripped by `load_narrations()`
-- **Known issues**: narration density is uneven; some gaps >5s; sentences are short
+
 
 ## Version Plan
 
@@ -41,7 +39,6 @@ Build a VLM-based action prediction system using egocentric video (Ego4D FHO dat
 |-----------|--------|
 | annotation/run_annotate.py | ✅ Done — single-pass, 30-50 word explanations directly |
 | annotation/build_training.py | ✅ Done — supports both V4 (no history) and V5 (with history) |
-| 70/71 videos annotated | ✅ Done |
 | V4 training data (data/training_v4/) | ✅ 4918 samples (50 train / 10 val / 10 test videos) |
 | V5 training data (data/training_v5/) | ✅ 4918 samples, same split, with history context in prompt |
 
@@ -51,7 +48,6 @@ Build a VLM-based action prediction system using egocentric video (Ego4D FHO dat
 - No prediction field — predictions constructed at training data build time
 - Narration alignment: current ±1 window narrations as context anchors
 - Resumable: saves after each window, detects partial output on restart
-- API delay: 0.5s between calls
 
 ### build_training.py
 - Reads all `*_annotation.json` files from annotations directory
@@ -103,13 +99,13 @@ sdp/
 │   └── build_training.py      #   Annotations → LLaMA-Factory format, supports --with_history
 │
 ├── data/
-│   ├── videos/                #   71 raw videos (.mp4)
+│   ├── videos/                # 
 │   ├── frames/                #   Extracted frames (subdirs by video name)
-│   ├── narrations/            #   selected_narrations.csv
-│   ├── results/               #   Inference output JSONs (v1/v2/v3)
-│   ├── annotations/           #   70 annotation JSONs (per video)
-│   ├── training_v4/           #   V4 training data (no history): train/val/test.json
-│   └── training_v5/           #   V5 training data (with history): train/val/test.json
+│   ├── narrations/            #   selected_narrations.csv (from Ego4D)
+│   ├── results/               #   Inference output JSONs
+│   ├── annotations/           #   annotation JSONs (per video)
+│   ├── training_v4/           #   
+│   └── training_v5/           #   
 │
 └── output_standard.md         # Explanation/prediction quality standard
 ```
@@ -238,7 +234,7 @@ python -m annotation.build_training \
 4. **V3 development** — sliding window history (3 steps, full text), tested and verified
 5. **Annotation pipeline (final)** — single-pass 30-50 word explanations, no compression step, 70 videos annotated
 6. **build_training.py** — LLaMA-Factory format, video-level splits, `--with_history` flag for V5
-7. **V4 + V5 training data generated** — 4918 samples each, 50/10/10 train/val/test split
+7. **V4 + V5 training data generated** -ready for fine-tuning
 8. **Qwen3.5-9B local inference support** — qwen_client.py, vlm.py backend selector, --backend flag for V1/V2/V3
 9. **V4/V5 pipeline complete** — train.py, infer.py, run.py for both versions, organized in v4/ and v5/ directories
 10. **V4/V5 dedicated prompts + inference tuning** — v4/prompt.py (anti-repetition), v5/prompt.py (anti-repetition + anti-hallucination), qwen_client temperature 1.0→0.3, added repetition_penalty=1.15
@@ -249,7 +245,7 @@ python -m annotation.build_training \
 - Qwen inference: `temperature=0.3` for stable output with `do_sample=False`, `repetition_penalty=1.15` to discourage Prediction from copying Explanation content
 
 ## TODO
-
+- [ ] more trainings
 - [ ] V4: run training on GPU server (`python -m v4.train`)
 - [ ] V5: run training on GPU server (`python -m v5.train`)
 - [ ] Run V4/V5 full inference and evaluate results
