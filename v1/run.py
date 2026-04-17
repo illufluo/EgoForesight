@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,11 +55,14 @@ def main():
             print(f"  Skipping frame {i + 1}: {e}")
             response = f"ERROR: {e}"
 
+        explanation, prediction = _parse_response(response)
+
         predictions.append({
             "window_id": i + 1,
             "time_range": [ts, ts],
             "frames": [os.path.basename(img_path)],
-            "prediction": response,
+            "explanation": explanation,
+            "prediction": prediction,
             "raw_response": response,
         })
 
@@ -73,6 +77,36 @@ def main():
     output_file = os.path.join(args.output, f"{video_name}_v1.json")
     save_results(results, output_file)
     print(f"Done. {len(predictions)} predictions saved.")
+
+
+def _parse_response(response: str) -> tuple:
+    """Extract explanation and prediction from VLM response."""
+    text = response.strip()
+
+    exp_match = re.search(r"(?i)explanation:\s*", text)
+    pred_match = re.search(r"(?i)prediction:\s*", text)
+
+    if exp_match and pred_match:
+        exp_start = exp_match.end()
+        pred_start = pred_match.end()
+
+        if exp_match.start() < pred_match.start():
+            explanation = text[exp_start:pred_match.start()].strip()
+            prediction = text[pred_start:].strip()
+        else:
+            prediction = text[pred_start:exp_match.start()].strip()
+            explanation = text[exp_start:].strip()
+    elif exp_match:
+        explanation = text[exp_match.end():].strip()
+        prediction = explanation
+    elif pred_match:
+        prediction = text[pred_match.end():].strip()
+        explanation = prediction
+    else:
+        explanation = text
+        prediction = text
+
+    return explanation, prediction
 
 
 if __name__ == "__main__":

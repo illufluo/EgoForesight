@@ -1,12 +1,17 @@
-"""V1 prompt: single frame action prediction."""
+"""V1 prompt: single frame action prediction (Explanation + Prediction)."""
 
 
 def build_prompt() -> str:
     return (
-        "You are analyzing a single frame from an egocentric (first-person) video.\n"
-        "The camera is mounted on the person's head, so you are seeing what they see.\n\n"
-        "Based on this frame, predict the most likely next action the person will perform.\n"
-        "Consider the objects visible, hand positions, and the current scene context.\n\n"
-        "Respond with ONLY a prediction of the next action in 30-50 words.\n"
-        "Format: Prediction: <your prediction>"
+        "Explain what is currently happening in this first-person video frame, "
+        "then predict the next action.\n\n"
+        "Rules:\n"
+        "- Explanation: describe the current action in 30-50 words using first/then/finally structure\n"
+        "- Prediction: describe the most likely next action in 30-50 words\n"
+        "- Name specific objects, include hand details\n"
+        "- No vague hedging, no references to the frame itself\n"
+        "- Start with action verbs\n\n"
+        "Respond with exactly two lines:\n"
+        "Explanation: <your explanation>\n"
+        "Prediction: <your prediction>"
     )
